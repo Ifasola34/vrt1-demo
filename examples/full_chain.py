@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +41,6 @@ from rich.table import Table
 from veritas.anchor import (
     Utxo,
     derive_anchor_pubkey,
-    extract_op_return_from_raw_tx,
     parse_op_return_payload,
 )
 from veritas.attestation import attestation_digest
@@ -108,12 +106,13 @@ def _funded_utxo(oracle_key: OracleKey) -> Utxo:
 # ---------- demo steps --------------------------------------------
 
 
-def step_1_oracle_attests(oracle: Oracle) -> tuple:
+def step_1_oracle_attests(oracle: Oracle) -> tuple[Any, Any, bool]:
     _header(1, "VERITAS oracle attests an inference")
     signed, evt = oracle.attest(
         "veritas.sentiment.keyword.v1",
         "BTC bullish breakout above resistance — strong rally",
     )
+    valid = signed.verify()
     digest = attestation_digest(signed.attestation).hex()
     t = Table(show_header=False, box=None)
     t.add_row("oracle pubkey", _short(signed.attestation.oracle))
@@ -121,14 +120,11 @@ def step_1_oracle_attests(oracle: Oracle) -> tuple:
     t.add_row("input hash",    _short(signed.attestation.input_hash))
     t.add_row("output",        str(signed.attestation.output))
     t.add_row("attestation digest", _short(digest))
+    t.add_row("sig valid?",    "[green]yes[/green]" if valid else "[red]no[/red]")
     t.add_row("nostr event id",    _short(evt.id))
     t.add_row("nostr event kind",  str(evt.kind))
     console.print(t)
-    console.print(
-        "[green]✓[/green] signed by oracle's BIP-340 key; "
-        "Nostr event id verifies under the same key (one keypair, two uses)"
-    )
-    return signed, evt
+    return signed, evt, valid
 
 
 def step_2_agent_review(agent_a: OracleKey, signed_attestation) -> tuple[Any, bool]:
@@ -350,7 +346,7 @@ def run_demo() -> bool:
         )
 
         # Steps 1-4 produce signed artifacts inside the open epoch.
-        signed, evt = step_1_oracle_attests(oracle)
+        signed, evt, attest_ok = step_1_oracle_attests(oracle)
         review, review_ok = step_2_agent_review(agent_a, signed)
         vouch, vouch_ok   = step_3_agent_vouch(agent_b, review)
         kwh, kwh_ok       = step_4_kwh_measurement(device)
@@ -369,7 +365,7 @@ def run_demo() -> bool:
         # Step 8: reputation summary across the agent corpus.
         rep_ok = step_8_reputation(agent_a, agent_b, [review, vouch])
 
-        all_ok = (review_ok and vouch_ok and kwh_ok
+        all_ok = (attest_ok and review_ok and vouch_ok and kwh_ok
                   and paywall_ok and verified and rep_ok)
 
         # Final summary panel.
@@ -385,8 +381,9 @@ def run_demo() -> bool:
         else:
             console.print(Panel.fit(
                 "[bold red]ECOSYSTEM CHECK FAILED[/bold red]\n"
-                f"review_ok={review_ok}  vouch_ok={vouch_ok}  kwh_ok={kwh_ok}  "
-                f"paywall_ok={paywall_ok}  verified={verified}  rep_ok={rep_ok}",
+                f"attest_ok={attest_ok}  review_ok={review_ok}  vouch_ok={vouch_ok}  "
+                f"kwh_ok={kwh_ok}  paywall_ok={paywall_ok}  verified={verified}  "
+                f"rep_ok={rep_ok}",
                 border_style="red",
             ))
 

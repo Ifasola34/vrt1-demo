@@ -106,7 +106,7 @@ $ pytest -q
 1 passed in 0.04s
 ```
 
-One test (`tests/test_smoke.py`) runs the full demo and asserts both the L402 paywall AND the verifier binding chain pass. That's the entire contract this repo enforces: "the five libraries compose."
+One test (`tests/test_smoke.py`) runs the full demo and asserts every step passes — attestation signature, agent review, agent vouch, kWh measurement, L402 paywall, verifier binding chain, and reputation summary. That's the entire contract this repo enforces: "the five libraries compose, and every artifact they produce is valid."
 
 CI runs the smoke test on Python 3.10, 3.11, 3.12, 3.13 — and additionally runs the `vrt1-demo` CLI as a sanity check that the rich-printed output renders.
 
