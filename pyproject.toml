@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vrt1-demo"
+version = "0.1.0"
+description = "End-to-end demo of the VRT1 (VERITAS) ecosystem: oracle attests an inference, agents review + vouch, a device emits signed kWh, the epoch closes with a Bitcoin-anchored Merkle root, an L402 Lightning paywall gates a premium call, and a third-party verifier independently confirms the binding chain."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Ifasola34"},
+]
+keywords = ["bitcoin", "nostr", "veritas", "demo", "lightning", "l402"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = [
+    "veritas @ git+https://github.com/Ifasola34/veritas.git",
+    "vrt1-verifier @ git+https://github.com/Ifasola34/vrt1-verifier.git",
+    "vrt1-agents @ git+https://github.com/Ifasola34/vrt1-agents.git",
+    "vrt1-kwh @ git+https://github.com/Ifasola34/vrt1-kwh.git",
+    "l402-py @ git+https://github.com/Ifasola34/l402-py.git",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+vrt1-demo = "examples.full_chain:main"
+
+[project.urls]
+"VERITAS"        = "https://github.com/Ifasola34/veritas"
+"vrt1-verifier"  = "https://github.com/Ifasola34/vrt1-verifier"
+"vrt1-agents"    = "https://github.com/Ifasola34/vrt1-agents"
+"vrt1-kwh"       = "https://github.com/Ifasola34/vrt1-kwh"
+"l402-py"        = "https://github.com/Ifasola34/l402-py"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+include = ["examples*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
