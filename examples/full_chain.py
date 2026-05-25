@@ -27,6 +27,7 @@ or directly:
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -56,6 +57,12 @@ from vrt1_agents.reputation import build_vouch_graph, summarize
 # --- vrt1-kwh -----------------------------------------------------
 from vrt1_kwh.attestation import make_measurement, sign_measurement
 from vrt1_kwh.measurer import StubMeasurer
+
+# --- vrt1-verifier (import-only smoke: proves package is installable
+# and its imports resolve; the actual verify_full call in step 7 uses
+# veritas.verifier directly because the demo passes artifacts in memory
+# rather than fetching from Nostr/Bitcoin) ----------------------------
+import vrt1_verifier.cli  # noqa: F401
 
 # --- l402-py ------------------------------------------------------
 from l402.backends import DeterministicMockBackend as L402MockBackend
@@ -124,7 +131,7 @@ def step_1_oracle_attests(oracle: Oracle) -> tuple:
     return signed, evt
 
 
-def step_2_agent_review(agent_a: OracleKey, signed_attestation) -> Any:
+def step_2_agent_review(agent_a: OracleKey, signed_attestation) -> tuple[Any, bool]:
     _header(2, "Agent A reviews the attestation (vrt1-agents)")
     review = sign_action(
         make_action(
@@ -139,18 +146,19 @@ def step_2_agent_review(agent_a: OracleKey, signed_attestation) -> Any:
         ),
         agent_a,
     )
+    valid = review.verify()
     t = Table(show_header=False, box=None)
     t.add_row("agent A pubkey", _short(agent_a.xonly_pubkey_hex))
     t.add_row("action_id",      _short(review.id))
     t.add_row("action_type",    review.action.action_type)
     t.add_row("target",         _short(review.action.target))
     t.add_row("outcome",        str(review.action.outcome))
-    t.add_row("sig valid?",     "[green]yes[/green]" if review.verify() else "[red]no[/red]")
+    t.add_row("sig valid?",     "[green]yes[/green]" if valid else "[red]no[/red]")
     console.print(t)
-    return review
+    return review, valid
 
 
-def step_3_agent_vouch(agent_b: OracleKey, review) -> Any:
+def step_3_agent_vouch(agent_b: OracleKey, review) -> tuple[Any, bool]:
     _header(3, "Agent B vouches for Agent A's review (vrt1-agents)")
     vouch = sign_action(
         make_action(
@@ -161,16 +169,17 @@ def step_3_agent_vouch(agent_b: OracleKey, review) -> Any:
         ),
         agent_b,
     )
+    valid = vouch.verify()
     t = Table(show_header=False, box=None)
     t.add_row("agent B pubkey", _short(agent_b.xonly_pubkey_hex))
     t.add_row("action_id",      _short(vouch.id))
     t.add_row("vouches for",    _short(vouch.action.parent_action))
-    t.add_row("sig valid?",     "[green]yes[/green]" if vouch.verify() else "[red]no[/red]")
+    t.add_row("sig valid?",     "[green]yes[/green]" if valid else "[red]no[/red]")
     console.print(t)
-    return vouch
+    return vouch, valid
 
 
-def step_4_kwh_measurement(device: OracleKey) -> Any:
+def step_4_kwh_measurement(device: OracleKey) -> tuple[Any, bool]:
     _header(4, "kWh device emits a signed power measurement (vrt1-kwh)")
     # 60s window at ~36W average laptop idle = ~600 µWh = 6e-7 kWh.
     stub = StubMeasurer(kwh_per_second=0.00001)
@@ -182,15 +191,16 @@ def step_4_kwh_measurement(device: OracleKey) -> Any:
         ),
         device,
     )
+    valid = signed_meas.verify()
     t = Table(show_header=False, box=None)
     t.add_row("device pubkey", _short(device.xonly_pubkey_hex))
     t.add_row("measurement_id", _short(signed_meas.id))
     t.add_row("source", signed_meas.measurement.source)
     t.add_row("window", f"{signed_meas.measurement.window_start} → {signed_meas.measurement.window_end}")
     t.add_row("kwh", f"{signed_meas.measurement.kwh:.9f}")
-    t.add_row("sig valid?", "[green]yes[/green]" if signed_meas.verify() else "[red]no[/red]")
+    t.add_row("sig valid?", "[green]yes[/green]" if valid else "[red]no[/red]")
     console.print(t)
-    return signed_meas
+    return signed_meas, valid
 
 
 def step_5_close_epoch(oracle: Oracle) -> tuple:
@@ -290,10 +300,13 @@ def step_7_verifier(signed_attestation, nostr_event, proof, epoch) -> bool:
     return result.ok
 
 
-def step_8_reputation(agent_a: OracleKey, agent_b: OracleKey, corpus) -> None:
+def step_8_reputation(agent_a: OracleKey, agent_b: OracleKey, corpus) -> bool:
     _header(8, "Reputation summary from the agent action corpus (vrt1-agents)")
     summ_a = summarize(agent_a.xonly_pubkey_hex, corpus)
     graph = build_vouch_graph(corpus)
+    ok = (summ_a.total_actions >= 1
+          and len(summ_a.vouches_received_from) >= 1
+          and graph.in_degree(agent_a.xonly_pubkey_hex) >= 1)
     t = Table(title=f"agent A reputation ({_short(agent_a.xonly_pubkey_hex)})", show_header=False, box=None)
     t.add_row("valid actions",         str(summ_a.total_actions))
     t.add_row("type counts",           str(summ_a.type_counts))
@@ -304,13 +317,14 @@ def step_8_reputation(agent_a: OracleKey, agent_b: OracleKey, corpus) -> None:
         "[green]✓[/green] one peer (Agent B) vouched; reputation = signed, "
         "cryptographically-bound, peer-verifiable history"
     )
+    return ok
 
 
 # ---------- orchestration -----------------------------------------
 
 
 def run_demo() -> bool:
-    """Run the full chain. Returns True iff the verifier reports ok=True."""
+    """Run the full chain. Returns True iff every step's verification passes."""
     console.print(Panel.fit(
         "[bold]VRT1 (VERITAS) ecosystem — end-to-end demo[/bold]\n"
         "5 protocol repos exercised in one flow; real signed artifacts at every layer.",
@@ -337,27 +351,30 @@ def run_demo() -> bool:
 
         # Steps 1-4 produce signed artifacts inside the open epoch.
         signed, evt = step_1_oracle_attests(oracle)
-        review      = step_2_agent_review(agent_a, signed)
-        vouch       = step_3_agent_vouch(agent_b, review)
-        kwh         = step_4_kwh_measurement(device)
+        review, review_ok = step_2_agent_review(agent_a, signed)
+        vouch, vouch_ok   = step_3_agent_vouch(agent_b, review)
+        kwh, kwh_ok       = step_4_kwh_measurement(device)
 
         # Step 5 closes the epoch (Merkle + checkpoint + anchor).
         epoch, proof = step_5_close_epoch(oracle)
 
         # Step 6: L402 paywall round-trip.
         ln_backend = L402MockBackend()
-        l402_secret = b"vrt1-demo-server-secret-32-bytes"
+        l402_secret = os.urandom(32)
         paywall_ok = step_6_l402_paywall(l402_secret, ln_backend)
 
         # Step 7: independent verifier.
         verified = step_7_verifier(signed, evt, proof, epoch)
 
         # Step 8: reputation summary across the agent corpus.
-        step_8_reputation(agent_a, agent_b, [review, vouch])
+        rep_ok = step_8_reputation(agent_a, agent_b, [review, vouch])
+
+        all_ok = (review_ok and vouch_ok and kwh_ok
+                  and paywall_ok and verified and rep_ok)
 
         # Final summary panel.
         console.print()
-        if paywall_ok and verified:
+        if all_ok:
             console.print(Panel.fit(
                 "[bold green]ECOSYSTEM COMPOSES ✓[/bold green]\n"
                 "Signed attestation, agent actions, kWh measurement, "
@@ -368,7 +385,8 @@ def run_demo() -> bool:
         else:
             console.print(Panel.fit(
                 "[bold red]ECOSYSTEM CHECK FAILED[/bold red]\n"
-                f"paywall_ok={paywall_ok}  verified={verified}",
+                f"review_ok={review_ok}  vouch_ok={vouch_ok}  kwh_ok={kwh_ok}  "
+                f"paywall_ok={paywall_ok}  verified={verified}  rep_ok={rep_ok}",
                 border_style="red",
             ))
 
@@ -388,7 +406,7 @@ def run_demo() -> bool:
             title="artifact ids",
             title_align="left",
         ))
-        return paywall_ok and verified
+        return all_ok
 
 
 def main() -> int:
