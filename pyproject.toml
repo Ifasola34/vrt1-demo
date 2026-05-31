@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
-    "veritas @ git+https://github.com/Ifasola34/veritas.git",
+    "veritas @ git+https://github.com/Ifasola34/veritas.git@v0.1.0",
     "vrt1-verifier @ git+https://github.com/Ifasola34/vrt1-verifier.git",
     "vrt1-agents @ git+https://github.com/Ifasola34/vrt1-agents.git",
     "vrt1-kwh @ git+https://github.com/Ifasola34/vrt1-kwh.git",
